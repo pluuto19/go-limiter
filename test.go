@@ -1,34 +1,50 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"github.com/redis/go-redis/v9"
-	"strconv"
+	"time"
 )
 
 func main() {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	//rdb := redis.NewClient(&redis.Options{
+	//	Addr:     "localhost:6379",
+	//	Password: "", // no password set
+	//	DB:       0,  // use default DB
+	//})
+	//
+	//err := rdb.Set(context.Background(), "a", 1, 0).Err()
+	//if err != nil {
+	//	fmt.Println(err.Error())
+	//}
+	//
+	//val, err := rdb.Get(context.Background(), "a").Result()
+	//if err != nil {
+	//	fmt.Println(err.Error())
+	//}
+	//fmt.Println(val)
+	//err1 := rdb.Set(context.Background(), "a", 0, 0).Err()
+	//if err1 != nil {
+	//	fmt.Println(err.Error())
+	//}
+	//
+	//val1, err1 := rdb.Get(context.Background(), "a").Result()
+	//if err1 != nil {
+	//	fmt.Println(err.Error())
+	//}
+	//
+	//converted, err2 := strconv.Atoi(val1)
+	//if err2 != nil {
+	//	fmt.Println(err.Error())
+	//}
+	//fmt.Println(converted)
+	now := time.Now()
 
-	err := rdb.Set(context.Background(), "192.168.100.1", 50, 0).Err()
-	if err != nil {
-		fmt.Println(err.Error())
-	}
+	// Format the time according to RFC 1123
+	formattedDate := now.Format(time.RFC1123)
 
-	val, err := rdb.Get(context.Background(), "192.168.100.1").Result()
-	if err != nil {
-		fmt.Println(err.Error())
-	}
+	// Construct the HTTP response string
+	httpResponse := fmt.Sprintf("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nDate: %s\r\n", formattedDate)
 
-	converted, err := strconv.Atoi(val)
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-	if converted == 50 {
-		fmt.Println(converted)
-	}
+	// Print the HTTP response
+	fmt.Println(httpResponse)
 }
