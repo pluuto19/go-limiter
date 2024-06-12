@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"net"
-	"strconv"
 	"time"
 )
 
@@ -13,6 +12,8 @@ var ctx = context.Background()
 
 const tokenSize = 10
 const refillRate = 3
+const bufSize = 1024
+const loadBalAddr = ":"
 
 func main() {
 	cache := initializeCacheStore("localhost", "6379", "")
@@ -47,29 +48,57 @@ func initializeCacheStore(addr string, port string, pass string) *redis.Client {
 }
 
 func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
-	forwardRequest, tokenRemaining := checkValidity(clientConnSock, cache)
-	if forwardRequest { // if passed then set correct headers when response comes back from backen
-		httpresponse := fmt.Sprintf("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nDate: %s\r\nServer: GoLang/1.22.2(Alpine)\r\nX-Ratelimit-Remaining: %s\r\nX-Ratelimit-Limit: %s\r\n\r\n", time.Now().Format(time.RFC1123), strconv.Itoa(tokenRemaining), strconv.Itoa(tokenSize))
+	forwardRequest, _ := checkValidityTokenBucket(clientConnSock, cache)
+	if forwardRequest { // if passed then set correct headers when response comes back from backend
+		// httpresponse := fmt.Sprintf("HTTP/1.1 200 OK\r\nConnection: close\r\nDate: %s\r\nServer: GoLang/1.22.2(Alpine)\r\nX-Ratelimit-Remaining: %s\r\nX-Ratelimit-Limit: %s\r\n\r\n", time.Now().Format(time.RFC1123), strconv.Itoa(tokenRemaining), strconv.Itoa(tokenSize))
+		clientRecvBuffer := make([]byte, bufSize)
+		clientRecvBufLen, err := clientConnSock.Read(clientRecvBuffer)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		resolvedLoadBalAddr, err := net.ResolveTCPAddr("tcp4", loadBalAddr)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		loadBalSock, err := net.DialTCP("tcp4", nil, resolvedLoadBalAddr)
+		_, err1 := loadBalSock.Write(clientRecvBuffer[0:clientRecvBufLen])
+		if err1 != nil {
+			fmt.Println(err1.Error())
+			return
+		}
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		closeerr := loadBalSock.Close()
+		if closeerr != nil {
+			fmt.Println(closeerr.Error())
+			return
+		}
+		loadBalRecvBuffer := make([]byte, bufSize)
+		loadBalRecvBufLen, err := loadBalSock.Read(loadBalRecvBuffer)
+		fmt.Println(loadBalRecvBuffer[0:loadBalRecvBufLen])
+		fmt.Println(loadBalRecvBufLen)
+		// add the correct headers to the message and send it into the client-socket
+		_, writeerr := clientConnSock.Write(loadBalRecvBuffer[0:loadBalRecvBufLen])
+		if writeerr != nil {
+			fmt.Println(writeerr.Error())
+			return
+		}
+		clientcloseerr := clientConnSock.Close()
+		if clientcloseerr != nil {
+			fmt.Println(clientcloseerr.Error())
+			return
+		}
 	} else { // if rate limited then return correct HTTP response
 		httpresponse := fmt.Sprintf("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nDate: %s\r\nServer: GoLang/1.22.2(Alpine)\r\nX-Ratelimit-Retry-After: %s", time.Now().Format(time.RFC1123), "")
-
-	}
-}
-
-func checkValidity(clientConnSock net.Conn, cache *redis.Client) (bool, int) {
-	tokensLeft, err := cache.Get(ctx, clientConnSock.RemoteAddr().String()).Result() // fetch from cache
-	if err != nil {
-		// set the key (IP addr) to value(tokens-1) in cache
-		cache.Set(ctx, clientConnSock.RemoteAddr().String(), tokenSize-1, refillRate*time.Second)
-		fmt.Println(err.Error())
-		return true, tokenSize - 1
-	}
-	converted, err := strconv.Atoi(tokensLeft)
-	if converted == 0 {
-		return false, 0
-	} else {
-		cache.Decr(ctx, clientConnSock.RemoteAddr().String()) // update the tokens in cache
-		return true, converted - 1
+		_, err := clientConnSock.Write([]byte(httpresponse))
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
 	}
 }
 
