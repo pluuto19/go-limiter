@@ -46,9 +46,8 @@ func initializeCacheStore(addr string, port string, pass string) *redis.Client {
 }
 
 func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
-	forwardRequest, _ := checkValidityTokenBucket(clientConnSock, cache)
+	forwardRequest, remLim := checkValidityTokenBucket(clientConnSock, cache)
 	if forwardRequest { // if passed then set correct headers when response comes back from backend
-		// httpresponse := fmt.Sprintf("HTTP/1.1 200 OK\r\nConnection: close\r\nDate: %s\r\nServer: GoLang/1.22.2(Alpine)\r\nX-Ratelimit-Remaining: %s\r\nX-Ratelimit-Limit: %s\r\n\r\n", time.Now().Format(time.RFC1123), strconv.Itoa(tokenRemaining), strconv.Itoa(tokenSize))
 		clientRecvBuffer := make([]byte, bufSize)
 		clientRecvBufLen, err := clientConnSock.Read(clientRecvBuffer)
 		if err != nil {
@@ -66,10 +65,6 @@ func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
 			fmt.Println(err1.Error())
 			return
 		}
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
 		closeerr := loadBalSock.Close()
 		if closeerr != nil {
 			fmt.Println(closeerr.Error())
@@ -79,8 +74,10 @@ func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
 		loadBalRecvBufLen, err := loadBalSock.Read(loadBalRecvBuffer)
 		fmt.Println(loadBalRecvBuffer[0:loadBalRecvBufLen])
 		fmt.Println(loadBalRecvBufLen)
+		fmt.Println(string(loadBalRecvBuffer))
+		attachedHeadersBuf, attachedHeadersBufLen := attachExtraHeaders(loadBalRecvBuffer, loadBalRecvBufLen, remLim, tokenSize)
 		// add the correct headers to the message and send it into the client-socket
-		_, writeerr := clientConnSock.Write(loadBalRecvBuffer[0:loadBalRecvBufLen])
+		_, writeerr := clientConnSock.Write(attachedHeadersBuf[0:attachedHeadersBufLen])
 		if writeerr != nil {
 			fmt.Println(writeerr.Error())
 			return
@@ -91,7 +88,7 @@ func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
 			return
 		}
 	} else { // if rate limited then return correct HTTP response
-		httpresponse := fmt.Sprintf("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nDate: %s\r\nServer: GoLang/1.22.2(Alpine)\r\nX-Ratelimit-Retry-After: %s", time.Now().Format(time.RFC1123), "")
+		httpresponse := fmt.Sprintf("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nDate: %s\r\nServer: GoLang/1.22.2(Alpine)\r\nX-Ratelimit-Retry-After: %s", time.Now().Format(time.RFC1123), "") // mostrecenttimestamp + refillrate(or refillafter) - currentrequesttimestamp
 		_, err := clientConnSock.Write([]byte(httpresponse))
 		if err != nil {
 			fmt.Println(err.Error())
@@ -99,5 +96,3 @@ func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
 		}
 	}
 }
-
-// run the Token Bucket/Sliding Window Log algorithm to decide whether to rate limit or let it pass
