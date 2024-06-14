@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+const tokenSize = 10
+const refillRate = 3
+
 func checkValidityTokenBucket(clientConnSock net.Conn, cache *redis.Client) (bool, int) {
 	tokensLeft, err := cache.Get(ctx, clientConnSock.RemoteAddr().String()).Result() // fetch from cache
 	if err != nil {

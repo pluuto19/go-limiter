@@ -8,12 +8,10 @@ import (
 	"time"
 )
 
-var ctx = context.Background()
-
-const tokenSize = 10
-const refillRate = 3
 const bufSize = 1024
 const loadBalAddr = ":"
+
+var ctx = context.Background()
 
 func main() {
 	cache := initializeCacheStore("localhost", "6379", "")
