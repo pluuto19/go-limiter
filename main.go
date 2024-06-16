@@ -54,39 +54,47 @@ func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
 			fmt.Println(err.Error())
 			return
 		}
+
 		resolvedLoadBalAddr, err := net.ResolveTCPAddr("tcp4", loadBalAddr)
 		if err != nil {
 			fmt.Println(err.Error())
 			return
 		}
+
 		loadBalSock, err := net.DialTCP("tcp4", nil, resolvedLoadBalAddr)
 		_, err1 := loadBalSock.Write(clientRecvBuffer[0:clientRecvBufLen])
 		if err1 != nil {
 			fmt.Println(err1.Error())
 			return
 		}
+
+		loadBalRecvBuffer := make([]byte, bufSize)
+		loadBalRecvBufLen, err := loadBalSock.Read(loadBalRecvBuffer)
 		closeerr := loadBalSock.Close()
 		if closeerr != nil {
 			fmt.Println(closeerr.Error())
 			return
 		}
-		loadBalRecvBuffer := make([]byte, bufSize)
-		loadBalRecvBufLen, err := loadBalSock.Read(loadBalRecvBuffer)
+
 		fmt.Println(loadBalRecvBuffer[0:loadBalRecvBufLen])
 		fmt.Println(loadBalRecvBufLen)
 		fmt.Println(string(loadBalRecvBuffer))
-		attachedHeadersBuf, attachedHeadersBufLen := attachExtraHeaders(loadBalRecvBuffer, loadBalRecvBufLen, remLim, tokenSize)
+
+		attachedHeadersBuf := attachExtraHeaders(loadBalRecvBuffer, loadBalRecvBufLen, remLim, tokenSize)
+
 		// add the correct headers to the message and send it into the client-socket
-		_, writeerr := clientConnSock.Write(attachedHeadersBuf[0:attachedHeadersBufLen])
+		_, writeerr := clientConnSock.Write(attachedHeadersBuf[0:])
 		if writeerr != nil {
 			fmt.Println(writeerr.Error())
 			return
 		}
+
 		clientcloseerr := clientConnSock.Close()
 		if clientcloseerr != nil {
 			fmt.Println(clientcloseerr.Error())
 			return
 		}
+
 	} else { // if rate limited then return correct HTTP response
 		httpresponse := fmt.Sprintf("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nDate: %s\r\nServer: GoLang/1.22.2(Alpine)\r\nX-Ratelimit-Retry-After: %s", time.Now().Format(time.RFC1123), "") // mostrecenttimestamp + refillrate(or refillafter) - currentrequesttimestamp
 		_, err := clientConnSock.Write([]byte(httpresponse))
@@ -94,5 +102,6 @@ func manageConnection(clientConnSock net.Conn, cache *redis.Client) {
 			fmt.Println(err.Error())
 			return
 		}
+
 	}
 }
